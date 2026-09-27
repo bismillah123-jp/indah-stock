@@ -20,14 +20,14 @@ interface HistoryLog {
 }
 
 const TAG_COLORS: Record<string, string> = {
-  'Robot Online': 'bg-blue-100 text-blue-700 border-blue-200',
-  'Konter Mbutoh': 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  'Konter Soko': 'bg-amber-100 text-amber-700 border-amber-200',
-  'Voucher': 'bg-purple-100 text-purple-700 border-purple-200',
-  'Aksesoris': 'bg-pink-100 text-pink-700 border-pink-200',
-  'HP': 'bg-cyan-100 text-cyan-700 border-cyan-200',
-  'Elektronik': 'bg-orange-100 text-orange-700 border-orange-200',
-  'Pulsa': 'bg-indigo-100 text-indigo-700 border-indigo-200',
+  'Robot Online': 'bg-blue-100 text-blue-700',
+  'Konter Mbutoh': 'bg-emerald-100 text-emerald-700',
+  'Konter Soko': 'bg-amber-100 text-amber-700',
+  'Voucher': 'bg-purple-100 text-purple-700',
+  'Aksesoris': 'bg-pink-100 text-pink-700',
+  'HP': 'bg-cyan-100 text-cyan-700',
+  'Elektronik': 'bg-orange-100 text-orange-700',
+  'Pulsa': 'bg-indigo-100 text-indigo-700',
 };
 
 const PRESET_TAGS = Object.keys(TAG_COLORS);
@@ -56,22 +56,23 @@ function loadHistory(): HistoryLog[] {
 }
 
 function TagBadge({ tag }: { tag: string }) {
-  const color = TAG_COLORS[tag] || 'bg-gray-100 text-gray-600 border-gray-200';
-  return <span className={`inline-block px-2 py-0.5 text-[11px] font-medium rounded-full border ${color}`}>{tag}</span>;
+  const color = TAG_COLORS[tag] || 'bg-gray-100 text-gray-700';
+  return <span className={`inline-block px-2 py-0.5 text-[11px] font-medium rounded-sm ${color}`}>{tag}</span>;
 }
 
-// Floating Window Component
-function FloatingWindow({ title, children, icon, badge }: { title: string; children: React.ReactNode; icon: string; badge?: React.ReactNode }) {
+function Modal({ isOpen, onClose, title, children }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
+  if (!isOpen) return null;
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-200/80 overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-        <div className="flex items-center gap-2.5">
-          <span className="text-lg">{icon}</span>
-          <h2 className="font-semibold text-gray-800 text-[15px]">{title}</h2>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/20 backdrop-blur-sm p-4">
+      <div className="bg-white w-full max-w-md rounded-xl shadow-lg border border-gray-100 overflow-hidden flex flex-col">
+        <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+          <h3 className="font-semibold text-gray-900">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 px-2">&times;</button>
         </div>
-        {badge}
+        <div className="p-5 overflow-y-auto max-h-[80vh]">
+          {children}
+        </div>
       </div>
-      <div>{children}</div>
     </div>
   );
 }
@@ -80,18 +81,23 @@ export default function Home() {
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [items, setItems] = useState<StockItem[]>(loadItems);
   const [history, setHistory] = useState<HistoryLog[]>(loadHistory);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTag, setFilterTag] = useState('');
   const [historyFilterDate, setHistoryFilterDate] = useState(getToday);
+  
   const [saleForm, setSaleForm] = useState({ date: getToday(), itemId: '', qty: 1, note: '' });
   const [newItemForm, setNewItemForm] = useState({ name: '', stock: 0, min_stock: 5, tags: [] as string[] });
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<Partial<StockItem>>({});
+  const [editForm, setEditForm] = useState<StockItem | null>(null);
+  
   const [showToast, setShowToast] = useState(false);
   const [tagInput, setTagInput] = useState('');
 
-  // Floating windows open state
-  const [openWindows, setOpenWindows] = useState({ restock: false, addItem: false });
+  // Dialog states
+  const [dialogRestock, setDialogRestock] = useState<{ isOpen: boolean; item: StockItem | null; qty: number }>({ isOpen: false, item: null, qty: 1 });
+  const [dialogConfirm, setDialogConfirm] = useState<{ isOpen: boolean; message: string; onConfirm: () => void }>({ isOpen: false, message: '', onConfirm: () => {} });
+  const [dialogEdit, setDialogEdit] = useState(false);
+  const [dialogAdd, setDialogAdd] = useState(false);
 
   const todayFormatted = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
   const todayRaw = getToday();
@@ -130,20 +136,14 @@ export default function Home() {
 
   const addItem = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newItemForm.name.trim()) return;
     save([...items, { id: Date.now(), ...newItemForm }], history);
     setNewItemForm({ name: '', stock: 0, min_stock: 5, tags: [] });
-    setOpenWindows({ ...openWindows, addItem: false });
+    setDialogAdd(false);
   };
 
   const toggleNewTag = (tag: string) => {
     setNewItemForm(f => ({ ...f, tags: f.tags.includes(tag) ? f.tags.filter(t => t !== tag) : [...f.tags, tag] }));
-  };
-
-  const toggleEditTag = (tag: string) => {
-    setEditForm(f => {
-      const tags = f.tags || [];
-      return { ...f, tags: tags.includes(tag) ? tags.filter(t => t !== tag) : [...tags, tag] };
-    });
   };
 
   const addCustomTag = () => {
@@ -153,36 +153,85 @@ export default function Home() {
     }
   };
 
-  const startEdit = (item: StockItem) => { setEditingId(item.id); setEditForm({ ...item }); };
+  const startEdit = (item: StockItem) => {
+    setEditForm({ ...item });
+    setDialogEdit(true);
+  };
+
+  const toggleEditTag = (tag: string) => {
+    if (!editForm) return;
+    const tags = editForm.tags || [];
+    setEditForm({ ...editForm, tags: tags.includes(tag) ? tags.filter(t => t !== tag) : [...tags, tag] });
+  };
+
+  const addCustomEditTag = () => {
+    if (!editForm || !tagInput.trim()) return;
+    if (!editForm.tags.includes(tagInput.trim())) {
+      setEditForm({ ...editForm, tags: [...editForm.tags, tagInput.trim()] });
+    }
+    setTagInput('');
+  };
 
   const saveEdit = () => {
+    if (!editForm || !editForm.name.trim()) return;
     const ni = [...items]; const nh = [...history];
-    const idx = ni.findIndex(i => i.id === editingId);
-    if (idx !== -1 && editForm.name !== undefined) {
+    const idx = ni.findIndex(i => i.id === editForm.id);
+    if (idx !== -1) {
       const oldStock = ni[idx].stock;
-      const newStock = editForm.stock ?? oldStock;
+      const newStock = editForm.stock;
       if (oldStock !== newStock) {
-        nh.push({ id: Date.now(), date: todayRaw, created_at: new Date().toISOString(), itemId: editingId!, type: 'ADJUST', qty: Math.abs(newStock - oldStock), note: `Koreksi (${oldStock} → ${newStock})` });
+        nh.push({ id: Date.now(), date: todayRaw, created_at: new Date().toISOString(), itemId: editForm.id, type: 'ADJUST', qty: Math.abs(newStock - oldStock), note: `Koreksi manual (${oldStock} → ${newStock})` });
       }
-      ni[idx] = { ...ni[idx], ...editForm } as StockItem;
+      ni[idx] = { ...editForm };
       save(ni, nh);
     }
-    setEditingId(null);
+    setDialogEdit(false);
   };
 
-  const restockPrompt = (item: StockItem) => {
-    const qty = prompt(`Berapa banyak ${item.name} yang baru dibeli (kulakan)?`);
-    const p = parseInt(qty ?? '');
-    if (!isNaN(p) && p > 0) {
-      const ni = [...items]; const nh = [...history];
-      const idx = ni.findIndex(i => i.id === item.id);
-      ni[idx].stock += p;
-      nh.push({ id: Date.now(), date: todayRaw, created_at: new Date().toISOString(), itemId: item.id, type: 'IN', qty: p, note: 'Restok / Kulakan' });
+  const confirmRestock = () => {
+    if (!dialogRestock.item || dialogRestock.qty <= 0) return;
+    const ni = [...items]; const nh = [...history];
+    const idx = ni.findIndex(i => i.id === dialogRestock.item!.id);
+    if (idx !== -1) {
+      ni[idx].stock += dialogRestock.qty;
+      nh.push({ id: Date.now(), date: todayRaw, created_at: new Date().toISOString(), itemId: dialogRestock.item!.id, type: 'IN', qty: dialogRestock.qty, note: 'Restok' });
       save(ni, nh);
     }
+    setDialogRestock({ isOpen: false, item: null, qty: 1 });
   };
 
-  const deleteItem = (id: number) => { if (confirm('Yakin hapus?')) save(items.filter(i => i.id !== id), history); };
+  const requestDelete = (id: number) => {
+    setDialogConfirm({
+      isOpen: true,
+      message: 'Hapus barang ini dari sistem secara permanen?',
+      onConfirm: () => {
+        save(items.filter(i => i.id !== id), history);
+        setDialogConfirm({ isOpen: false, message: '', onConfirm: () => {} });
+      }
+    });
+  };
+
+  const requestDeleteLog = (id: number) => {
+    setDialogConfirm({
+      isOpen: true,
+      message: 'Batalkan transaksi ini dan kembalikan stok?',
+      onConfirm: () => {
+        const nh = [...history]; const ni = [...items];
+        const li = nh.findIndex(h => h.id === id);
+        if (li !== -1) {
+          const log = nh[li];
+          const ii = ni.findIndex(i => i.id === log.itemId);
+          if (ii !== -1) {
+            if (log.type === 'OUT') ni[ii].stock += log.qty;
+            else if (log.type === 'IN') ni[ii].stock -= log.qty;
+          }
+          nh.splice(li, 1);
+          save(ni, nh);
+        }
+        setDialogConfirm({ isOpen: false, message: '', onConfirm: () => {} });
+      }
+    });
+  };
 
   const recordSale = (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,249 +246,270 @@ export default function Home() {
     setTimeout(() => setShowToast(false), 3000);
   };
 
-  const deleteLog = (id: number) => {
-    if (!confirm('Batalin transaksi ini?')) return;
-    const nh = [...history]; const ni = [...items];
-    const li = nh.findIndex(h => h.id === id);
-    if (li === -1) return;
-    const log = nh[li];
-    const ii = ni.findIndex(i => i.id === log.itemId);
-    if (ii !== -1) {
-      if (log.type === 'OUT') ni[ii].stock += log.qty;
-      else if (log.type === 'IN') ni[ii].stock -= log.qty;
-    }
-    nh.splice(li, 1);
-    save(ni, nh);
-  };
-
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'input', label: 'Catat Laku', icon: '➕' },
-    { id: 'history', label: 'Riwayat', icon: '📋' },
-    { id: 'items', label: 'Master', icon: '📦' },
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'input', label: 'Catat Laku' },
+    { id: 'history', label: 'Riwayat' },
+    { id: 'items', label: 'Master Data' },
   ];
 
   return (
-    <div className="font-sans min-h-screen pb-20 md:pb-0 bg-[#f5f5f7] text-gray-800">
-
-      {/* Desktop Nav */}
-      <nav className="hidden md:flex bg-white/80 backdrop-blur-xl sticky top-0 z-50 px-6 py-3 items-center justify-between border-b border-gray-200/60 shadow-sm">
+    <div className="min-h-screen pb-20 md:pb-0 bg-[#fafafa] text-[#111]">
+      <nav className="hidden md:flex bg-white sticky top-0 z-40 px-6 py-4 items-center justify-between border-b border-gray-200">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center font-bold text-white text-sm shadow-md shadow-blue-500/20">IC</div>
-          <div>
-            <h1 className="text-base font-bold text-gray-900 leading-tight">Indah Cell</h1>
-            <p className="text-[11px] text-gray-400 leading-tight">Stock Tracker</p>
-          </div>
+          <div className="font-semibold text-lg tracking-tight">Indah Cell</div>
         </div>
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+        <div className="flex gap-2">
           {tabs.map(t => (
-            <button key={t.id} onClick={() => setCurrentTab(t.id)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${currentTab === t.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-              <span className="mr-1.5">{t.icon}</span>{t.label}
+            <button key={t.id} onClick={() => setCurrentTab(t.id)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${currentTab === t.id ? 'bg-black text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+              {t.label}
             </button>
           ))}
         </div>
-        <div className="text-xs text-gray-400">{todayFormatted}</div>
+        <div className="text-sm text-gray-500">{todayFormatted}</div>
       </nav>
 
-      {/* Mobile Header */}
-      <header className="md:hidden bg-white/80 backdrop-blur-xl sticky top-0 z-50 px-4 py-3 flex items-center justify-between border-b border-gray-200/60">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center font-bold text-white text-xs shadow-md shadow-blue-500/20">IC</div>
-          <div>
-            <h1 className="text-sm font-bold text-gray-900 leading-tight">Indah Cell</h1>
-            <p className="text-[10px] text-gray-400 leading-tight">Stock Tracker</p>
-          </div>
-        </div>
-        <div className="text-[11px] text-gray-400">{todayFormatted}</div>
+      <header className="md:hidden bg-white sticky top-0 z-40 px-5 py-4 flex items-center justify-between border-b border-gray-200">
+        <div className="font-semibold tracking-tight">Indah Cell</div>
+        <div className="text-xs text-gray-500">{todayFormatted}</div>
       </header>
 
-      <main className="max-w-5xl mx-auto p-4 md:p-6 space-y-5">
+      <main className="max-w-5xl mx-auto p-5 md:p-8">
+        
+        {currentTab === 'dashboard' && (
+          <div className="space-y-8">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-xl border border-gray-200"><div className="text-sm text-gray-500 mb-1">Total Item</div><div className="text-3xl font-medium tracking-tight">{items.length}</div></div>
+              <div className="bg-white p-5 rounded-xl border border-red-200"><div className="text-sm text-red-500 mb-1">Restok</div><div className="text-3xl font-medium tracking-tight text-red-600">{itemsNeedsRestock.length}</div></div>
+              <div className="bg-white p-5 rounded-xl border border-gray-200"><div className="text-sm text-gray-500 mb-1">Laku Hari Ini</div><div className="text-3xl font-medium tracking-tight">{salesToday}</div></div>
+              <div className="bg-white p-5 rounded-xl border border-gray-200"><div className="text-sm text-gray-500 mb-1">Transaksi</div><div className="text-3xl font-medium tracking-tight">{txToday}</div></div>
+            </div>
 
-        {/* ===== DASHBOARD ===== */}
-        {currentTab === 'dashboard' && <>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white p-4 rounded-2xl border border-gray-200/60 shadow-sm"><div className="text-xs text-gray-400 mb-1">Total Item</div><div className="text-2xl font-bold text-gray-900">{items.length}</div></div>
-            <div className="bg-white p-4 rounded-2xl border border-gray-200/60 shadow-sm border-l-4 border-l-red-400"><div className="text-xs text-gray-400 mb-1">Wajib Restok</div><div className="text-2xl font-bold text-red-500">{itemsNeedsRestock.length}</div></div>
-            <div className="bg-white p-4 rounded-2xl border border-gray-200/60 shadow-sm"><div className="text-xs text-gray-400 mb-1">Laku Hari Ini</div><div className="text-2xl font-bold text-blue-600">{salesToday}</div></div>
-            <div className="bg-white p-4 rounded-2xl border border-gray-200/60 shadow-sm"><div className="text-xs text-gray-400 mb-1">Transaksi</div><div className="text-2xl font-bold text-gray-900">{txToday}</div></div>
+            {itemsNeedsRestock.length > 0 && (
+              <section className="bg-white rounded-xl border border-red-200 overflow-hidden">
+                <div className="px-5 py-4 border-b border-red-100 bg-red-50 flex items-center justify-between">
+                  <h2 className="font-medium text-red-800">Wajib Restok</h2>
+                </div>
+                <div className="p-0">
+                  <table className="w-full text-left text-sm">
+                    <tbody className="divide-y divide-gray-100">
+                      {itemsNeedsRestock.map(item => (
+                        <tr key={item.id} className="hover:bg-gray-50">
+                          <td className="px-5 py-3 font-medium">{item.name}</td>
+                          <td className="px-5 py-3 text-right">
+                            <span className="text-red-600 font-semibold">{item.stock}</span>
+                            <span className="text-gray-400 text-xs ml-1">/ min {item.min_stock}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
+            <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <h2 className="font-medium">Stok Barang</h2>
+                <div className="flex gap-2">
+                  <select value={filterTag} onChange={e => setFilterTag(e.target.value)} className="text-sm border border-gray-200 rounded-md px-3 py-1.5 focus:outline-none focus:border-gray-400 bg-white">
+                    <option value="">Semua Kategori</option>
+                    {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                  <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Cari barang..." className="text-sm border border-gray-200 rounded-md px-3 py-1.5 w-full sm:w-48 focus:outline-none focus:border-gray-400 bg-white" />
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead><tr className="text-gray-500 border-b border-gray-100 bg-gray-50/50"><th className="px-5 py-3 font-medium">Nama</th><th className="px-5 py-3 font-medium">Kategori</th><th className="px-5 py-3 text-right font-medium">Stok</th></tr></thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredDashboardItems.map(item => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        <td className="px-5 py-4 font-medium">{item.name}</td>
+                        <td className="px-5 py-4"><div className="flex gap-1.5 flex-wrap">{item.tags?.map(t => <TagBadge key={t} tag={t} />)}</div></td>
+                        <td className="px-5 py-4 text-right">
+                          <span className={`text-base font-semibold ${item.stock <= item.min_stock ? 'text-red-600' : ''}`}>{item.stock}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filteredDashboardItems.length === 0 && <div className="p-10 text-center text-gray-500">Tidak ada barang.</div>}
+              </div>
+            </section>
           </div>
+        )}
 
-          {/* Restock Alert */}
-          {itemsNeedsRestock.length > 0 && (
-            <FloatingWindow title="Wajib Restok Segera" icon="🔴" badge={<span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-medium">{itemsNeedsRestock.length} item</span>}>
-              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-                {itemsNeedsRestock.map(item => (
-                  <div key={item.id} className="flex justify-between items-center p-3 bg-red-50/50 rounded-xl border border-red-100">
-                    <div>
-                      <div className="font-medium text-gray-800 text-sm">{item.name}</div>
-                      <div className="flex gap-1.5 mt-1 flex-wrap">{item.tags?.map(t => <TagBadge key={t} tag={t} />)}</div>
-                    </div>
-                    <div className="text-right ml-3">
-                      <div className="text-xl font-bold text-red-500">{item.stock}</div>
-                      <div className="text-[10px] text-gray-400">min {item.min_stock}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </FloatingWindow>
-          )}
-
-          {/* Stock Table */}
-          <FloatingWindow title="Pantauan Stok" icon="📦" badge={
-            <div className="flex gap-2 items-center">
-              <select value={filterTag} onChange={e => setFilterTag(e.target.value)} className="text-xs bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 focus:outline-none focus:border-blue-400">
-                <option value="">Semua Tag</option>
-                {allTags.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Cari..." className="text-xs bg-white border border-gray-200 rounded-lg px-3 py-1.5 w-32 md:w-48 focus:outline-none focus:border-blue-400 text-gray-600"/>
-            </div>
-          }>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead><tr className="text-[11px] text-gray-400 uppercase tracking-wider border-b border-gray-100"><th className="px-5 py-3">Nama</th><th className="px-5 py-3">Tag</th><th className="px-5 py-3 text-center">Stok</th><th className="px-5 py-3 text-right">Status</th></tr></thead>
-                <tbody className="divide-y divide-gray-50">{filteredDashboardItems.map(item => (
-                  <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
-                    <td className="px-5 py-3 font-medium text-gray-800 text-sm">{item.name}</td>
-                    <td className="px-5 py-3"><div className="flex gap-1 flex-wrap">{item.tags?.map(t => <TagBadge key={t} tag={t} />)}</div></td>
-                    <td className="px-5 py-3 text-center"><span className={`text-lg font-bold ${item.stock <= item.min_stock ? 'text-red-500' : 'text-gray-800'}`}>{item.stock}</span></td>
-                    <td className="px-5 py-3 text-right">
-                      {item.stock <= item.min_stock ? <span className="px-2.5 py-1 bg-red-100 text-red-600 rounded-full text-[11px] font-semibold">Restok</span>
-                      : item.stock <= item.min_stock + 5 ? <span className="px-2.5 py-1 bg-amber-100 text-amber-600 rounded-full text-[11px] font-semibold">Menipis</span>
-                      : <span className="px-2.5 py-1 bg-emerald-100 text-emerald-600 rounded-full text-[11px] font-semibold">Aman</span>}
-                    </td>
-                  </tr>
-                ))}</tbody>
-              </table>
-              {filteredDashboardItems.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">Tidak ditemukan.</div>}
-            </div>
-          </FloatingWindow>
-        </>}
-
-        {/* ===== CATAT LAKU ===== */}
         {currentTab === 'input' && (
-          <FloatingWindow title="Catat Barang Laku" icon="🛒">
-            <form onSubmit={recordSale} className="p-5 md:p-8 space-y-5 max-w-xl mx-auto">
-              <div><label className="block text-xs font-medium text-gray-500 mb-1.5">Tanggal</label><input type="date" value={saleForm.date} onChange={e => setSaleForm({ ...saleForm, date: e.target.value })} required className="w-full border border-gray-200 rounded-xl p-3 text-gray-800 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 bg-white" /></div>
-              <div><label className="block text-xs font-medium text-gray-500 mb-1.5">Barang</label><select value={saleForm.itemId} onChange={e => setSaleForm({ ...saleForm, itemId: e.target.value })} required className="w-full border border-gray-200 rounded-xl p-3 text-gray-800 focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 bg-white"><option value="" disabled>-- Pilih --</option>{items.map(i => <option key={i.id} value={i.id}>{i.name} (Stok: {i.stock})</option>)}</select></div>
-              <div><label className="block text-xs font-medium text-gray-500 mb-1.5">Jumlah</label>
-                <div className="flex items-center gap-3">
-                  <button type="button" onClick={() => saleForm.qty > 1 && setSaleForm({ ...saleForm, qty: saleForm.qty - 1 })} className="w-12 h-12 rounded-xl bg-gray-100 border border-gray-200 text-xl text-gray-600 hover:bg-gray-200 transition font-bold">−</button>
-                  <input type="number" value={saleForm.qty} onChange={e => setSaleForm({ ...saleForm, qty: parseInt(e.target.value) || 1 })} min="1" required className="w-full border border-gray-200 rounded-xl p-3 text-center text-xl font-bold text-gray-800 focus:outline-none focus:border-blue-400 bg-white" />
-                  <button type="button" onClick={() => setSaleForm({ ...saleForm, qty: saleForm.qty + 1 })} className="w-12 h-12 rounded-xl bg-gray-100 border border-gray-200 text-xl text-gray-600 hover:bg-gray-200 transition font-bold">+</button>
+          <div className="max-w-md mx-auto">
+            <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100"><h2 className="font-medium">Catat Penjualan</h2></div>
+              <form onSubmit={recordSale} className="p-5 space-y-5">
+                <div><label className="block text-sm text-gray-600 mb-1.5">Tanggal</label><input type="date" value={saleForm.date} onChange={e => setSaleForm({ ...saleForm, date: e.target.value })} required className="w-full border border-gray-300 rounded-md p-2.5 focus:outline-none focus:border-black bg-white text-sm" /></div>
+                <div><label className="block text-sm text-gray-600 mb-1.5">Barang</label>
+                  <select value={saleForm.itemId} onChange={e => setSaleForm({ ...saleForm, itemId: e.target.value })} required className="w-full border border-gray-300 rounded-md p-2.5 focus:outline-none focus:border-black bg-white text-sm">
+                    <option value="" disabled>-- Pilih Barang --</option>
+                    {items.filter(i => i.stock > 0).map(i => <option key={i.id} value={i.id}>{i.name} (Stok: {i.stock})</option>)}
+                  </select>
                 </div>
-              </div>
-              <div><label className="block text-xs font-medium text-gray-500 mb-1.5">Catatan</label><input type="text" value={saleForm.note} onChange={e => setSaleForm({ ...saleForm, note: e.target.value })} placeholder="Opsional" className="w-full border border-gray-200 rounded-xl p-3 text-gray-800 focus:outline-none focus:border-blue-400 bg-white" /></div>
-              <button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-bold py-4 rounded-xl transition shadow-lg shadow-blue-500/20 text-sm">Simpan Penjualan</button>
-            </form>
-            {showToast && <div className="mx-5 mb-5 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-center text-sm font-medium">Berhasil dicatat! Stok otomatis berkurang.</div>}
-          </FloatingWindow>
+                <div><label className="block text-sm text-gray-600 mb-1.5">Jumlah Keluar</label>
+                  <input type="number" value={saleForm.qty} onChange={e => setSaleForm({ ...saleForm, qty: parseInt(e.target.value) || 1 })} min="1" required className="w-full border border-gray-300 rounded-md p-2.5 focus:outline-none focus:border-black bg-white text-sm" />
+                </div>
+                <div><label className="block text-sm text-gray-600 mb-1.5">Catatan</label><input type="text" value={saleForm.note} onChange={e => setSaleForm({ ...saleForm, note: e.target.value })} placeholder="Opsional" className="w-full border border-gray-300 rounded-md p-2.5 focus:outline-none focus:border-black bg-white text-sm" /></div>
+                <button type="submit" className="w-full bg-black hover:bg-gray-800 text-white font-medium py-3 rounded-md transition text-sm mt-2">Simpan</button>
+              </form>
+            </section>
+            {showToast && <div className="mt-4 p-3 bg-gray-900 text-white rounded-md text-center text-sm">Berhasil dicatat. Stok berkurang otomatis.</div>}
+          </div>
         )}
 
-        {/* ===== RIWAYAT ===== */}
         {currentTab === 'history' && (
-          <FloatingWindow title="Riwayat Keluar / Masuk" icon="📋" badge={
-            <div className="flex gap-2"><input type="date" value={historyFilterDate} onChange={e => setHistoryFilterDate(e.target.value)} className="text-xs bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 focus:outline-none focus:border-blue-400" /><button onClick={() => setHistoryFilterDate('')} className="text-xs bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 rounded-lg text-gray-500 transition">Semua</button></div>
-          }>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead><tr className="text-[11px] text-gray-400 uppercase tracking-wider border-b border-gray-100"><th className="px-5 py-3">Tgl</th><th className="px-5 py-3">Item</th><th className="px-5 py-3 text-center">Qty</th><th className="px-5 py-3 text-right">Aksi</th></tr></thead>
-                <tbody className="divide-y divide-gray-50">{filteredHistory.map(log => (
-                  <tr key={log.id} className="hover:bg-blue-50/30 transition-colors">
-                    <td className="px-5 py-3 text-xs text-gray-500 whitespace-nowrap">{formatDate(log.date)}</td>
-                    <td className="px-5 py-3">
-                      <div className="text-[11px] mb-0.5">{log.type === 'OUT' ? <span className="text-amber-600 font-semibold">LAKU</span> : log.type === 'IN' ? <span className="text-emerald-600 font-semibold">RESTOK</span> : <span className="text-gray-400 font-semibold">KOREKSI</span>}</div>
-                      <div className="font-medium text-gray-800 text-sm">{getItemName(log.itemId)}</div>
-                      {log.note && <div className="text-[11px] text-gray-400 mt-0.5">{log.note}</div>}
-                    </td>
-                    <td className={`px-5 py-3 text-center font-bold text-base ${log.type === 'OUT' ? 'text-amber-600' : 'text-emerald-600'}`}>{log.type === 'OUT' ? '−' : '+'}{log.qty}</td>
-                    <td className="px-5 py-3 text-right"><button onClick={() => deleteLog(log.id)} className="text-red-400 hover:text-red-600 text-xs font-medium transition">Batal</button></td>
-                  </tr>
-                ))}</tbody>
-              </table>
-              {filteredHistory.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">Tidak ada riwayat.</div>}
+          <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+              <h2 className="font-medium">Riwayat Transaksi</h2>
+              <div className="flex gap-2">
+                <input type="date" value={historyFilterDate} onChange={e => setHistoryFilterDate(e.target.value)} className="text-sm border border-gray-200 rounded-md px-2 py-1.5 focus:outline-none bg-white" />
+                <button onClick={() => setHistoryFilterDate('')} className="text-sm bg-gray-100 px-3 py-1.5 rounded-md hover:bg-gray-200">Semua</button>
+              </div>
             </div>
-          </FloatingWindow>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead><tr className="text-gray-500 border-b border-gray-100 bg-gray-50/50"><th className="px-5 py-3 font-medium">Tanggal</th><th className="px-5 py-3 font-medium">Item</th><th className="px-5 py-3 text-right font-medium">Qty</th><th className="px-5 py-3 text-right font-medium">Aksi</th></tr></thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredHistory.map(log => (
+                    <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="px-5 py-4 text-gray-500 whitespace-nowrap">{formatDate(log.date)}</td>
+                      <td className="px-5 py-4">
+                        <div className="text-xs mb-1 font-medium">{log.type === 'OUT' ? <span className="text-gray-500 border px-1.5 py-0.5 rounded-sm">LAKU</span> : log.type === 'IN' ? <span className="text-gray-500 border px-1.5 py-0.5 rounded-sm">RESTOK</span> : <span className="text-gray-400 border px-1.5 py-0.5 rounded-sm">KOREKSI</span>}</div>
+                        <div className="font-medium">{getItemName(log.itemId)}</div>
+                        {log.note && <div className="text-xs text-gray-500 mt-1">{log.note}</div>}
+                      </td>
+                      <td className="px-5 py-4 text-right font-semibold">{log.type === 'OUT' ? '−' : '+'}{log.qty}</td>
+                      <td className="px-5 py-4 text-right"><button onClick={() => requestDeleteLog(log.id)} className="text-red-600 hover:underline text-sm">Batal</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {filteredHistory.length === 0 && <div className="p-10 text-center text-gray-500">Belum ada transaksi.</div>}
+            </div>
+          </section>
         )}
 
-        {/* ===== MASTER BARANG ===== */}
-        {currentTab === 'items' && <>
-          {/* Add Item Floating Window */}
-          <FloatingWindow title="Tambah Barang Baru" icon="✨">
-            <form onSubmit={addItem} className="p-5 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-1"><label className="block text-xs font-medium text-gray-500 mb-1">Nama</label><input type="text" value={newItemForm.name} onChange={e => setNewItemForm({ ...newItemForm, name: e.target.value })} required placeholder="Cth: Voucher Tsel 5GB" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:border-blue-400 bg-white" /></div>
-                <div><label className="block text-xs font-medium text-gray-500 mb-1">Stok Awal</label><input type="number" value={newItemForm.stock} onChange={e => setNewItemForm({ ...newItemForm, stock: parseInt(e.target.value) || 0 })} required min="0" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:border-blue-400 bg-white" /></div>
-                <div><label className="block text-xs font-medium text-gray-500 mb-1">Min Restok</label><input type="number" value={newItemForm.min_stock} onChange={e => setNewItemForm({ ...newItemForm, min_stock: parseInt(e.target.value) || 0 })} required min="0" className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 focus:outline-none focus:border-blue-400 bg-white" /></div>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-2">Tag</label>
-                <div className="flex gap-2 flex-wrap">
-                  {PRESET_TAGS.map(t => (
-                    <button type="button" key={t} onClick={() => toggleNewTag(t)} className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${newItemForm.tags.includes(t) ? TAG_COLORS[t] + ' ring-2 ring-offset-1 ring-blue-400' : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'}`}>{t}</button>
-                  ))}
-                </div>
-                <div className="flex gap-2 mt-2">
-                  <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCustomTag())} placeholder="Tag custom..." className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-800 focus:outline-none focus:border-blue-400 bg-white" />
-                  <button type="button" onClick={addCustomTag} className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg text-gray-600 transition">Tambah</button>
-                </div>
-              </div>
-              <button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 rounded-xl transition shadow-lg shadow-blue-500/20 text-sm">Simpan Barang</button>
-            </form>
-          </FloatingWindow>
-
-          {/* Items List */}
-          <FloatingWindow title="Kelola Barang" icon="📦" badge={<span className="text-xs text-gray-400">{items.length} item</span>}>
+        {currentTab === 'items' && (
+          <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+              <h2 className="font-medium">Master Data</h2>
+              <button onClick={() => setDialogAdd(true)} className="bg-black text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-800">Tambah Barang</button>
+            </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead><tr className="text-[11px] text-gray-400 uppercase tracking-wider border-b border-gray-100"><th className="px-5 py-3">Barang</th><th className="px-5 py-3">Tag</th><th className="px-5 py-3 text-center">Stok</th><th className="px-5 py-3 text-right">Aksi</th></tr></thead>
-                <tbody className="divide-y divide-gray-50">{items.map(item => (
-                  <tr key={item.id} className="hover:bg-blue-50/30 transition-colors">
-                    <td className="px-5 py-3 text-sm font-medium text-gray-800">
-                      {editingId === item.id ? <input type="text" value={editForm.name ?? ''} onChange={e => setEditForm({ ...editForm, name: e.target.value })} className="border border-blue-400 rounded-lg px-2 py-1 w-full text-sm bg-white" /> : item.name}
-                    </td>
-                    <td className="px-5 py-3">
-                      {editingId === item.id ? (
-                        <div className="flex gap-1 flex-wrap">{PRESET_TAGS.map(t => <button type="button" key={t} onClick={() => toggleEditTag(t)} className={`px-2 py-0.5 rounded-full text-[10px] border transition ${editForm.tags?.includes(t) ? TAG_COLORS[t] : 'bg-gray-50 text-gray-300 border-gray-200'}`}>{t}</button>)}</div>
-                      ) : (
-                        <div className="flex gap-1 flex-wrap">{item.tags?.map(t => <TagBadge key={t} tag={t} />)}</div>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-center">
-                      {editingId === item.id ? <input type="number" value={editForm.stock ?? 0} onChange={e => setEditForm({ ...editForm, stock: parseInt(e.target.value) || 0 })} className="border border-blue-400 rounded-lg px-2 py-1 w-16 text-center text-sm bg-white" /> : <span className="font-bold text-base">{item.stock}</span>}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      {editingId === item.id ? (
-                        <div className="flex justify-end gap-2"><button onClick={saveEdit} className="text-emerald-600 text-xs font-medium">Save</button><button onClick={() => setEditingId(null)} className="text-gray-400 text-xs">Batal</button></div>
-                      ) : (
-                        <div className="flex justify-end items-center gap-2">
-                          <button onClick={() => restockPrompt(item)} className="text-[11px] bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 px-2.5 py-1 rounded-lg transition font-medium">+Kulakan</button>
-                          <button onClick={() => startEdit(item)} className="text-blue-500 text-xs font-medium">Edit</button>
-                          <button onClick={() => deleteItem(item.id)} className="text-red-400 text-xs font-medium">Hapus</button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}</tbody>
+              <table className="w-full text-left text-sm">
+                <thead><tr className="text-gray-500 border-b border-gray-100 bg-gray-50/50"><th className="px-5 py-3 font-medium">Barang</th><th className="px-5 py-3 font-medium">Kategori</th><th className="px-5 py-3 text-right font-medium">Stok</th><th className="px-5 py-3 text-right font-medium">Manajemen</th></tr></thead>
+                <tbody className="divide-y divide-gray-100">
+                  {items.map(item => (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="px-5 py-4 font-medium">{item.name}</td>
+                      <td className="px-5 py-4"><div className="flex gap-1.5 flex-wrap">{item.tags?.map(t => <TagBadge key={t} tag={t} />)}</div></td>
+                      <td className="px-5 py-4 text-right font-medium">{item.stock}</td>
+                      <td className="px-5 py-4 text-right space-x-3">
+                        <button onClick={() => setDialogRestock({ isOpen: true, item, qty: 1 })} className="text-blue-600 font-medium hover:underline">Restok</button>
+                        <button onClick={() => startEdit(item)} className="text-gray-600 font-medium hover:underline">Edit</button>
+                        <button onClick={() => requestDelete(item.id)} className="text-red-600 font-medium hover:underline">Hapus</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
-          </FloatingWindow>
-        </>}
+          </section>
+        )}
       </main>
 
-      {/* Mobile Bottom Nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-gray-200/60 pt-1.5 px-2 flex justify-around items-center z-50 pb-[env(safe-area-inset-bottom,6px)]">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-2 py-2 flex justify-around items-center z-40 pb-[calc(env(safe-area-inset-bottom)+8px)]">
         {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setCurrentTab(tab.id)} className={`flex flex-col items-center py-1.5 px-3 rounded-xl transition-all ${currentTab === tab.id ? 'text-blue-600' : 'text-gray-400'} ${tab.id === 'input' ? 'relative' : ''}`}>
-            {tab.id === 'input' ? (
-              <div className="absolute -top-5 bg-gradient-to-br from-blue-500 to-blue-600 text-white w-11 h-11 rounded-full flex items-center justify-center shadow-lg shadow-blue-500/30 border-4 border-white text-lg">{tab.icon}</div>
-            ) : (
-              <span className="text-lg mb-0.5">{tab.icon}</span>
-            )}
-            <span className={`text-[10px] font-medium ${tab.id === 'input' ? 'mt-5' : ''}`}>{tab.label}</span>
+          <button key={tab.id} onClick={() => setCurrentTab(tab.id)} className={`flex-1 text-center py-2 text-sm font-medium transition-colors ${currentTab === tab.id ? 'text-black' : 'text-gray-400'}`}>
+            {tab.label}
           </button>
         ))}
       </nav>
+
+      {/* Floating Window: Tambah Barang */}
+      <Modal isOpen={dialogAdd} onClose={() => setDialogAdd(false)} title="Tambah Barang">
+        <form onSubmit={addItem} className="space-y-4">
+          <div><label className="block text-sm font-medium mb-1.5">Nama Barang</label><input type="text" value={newItemForm.name} onChange={e => setNewItemForm({ ...newItemForm, name: e.target.value })} required className="w-full border border-gray-300 rounded-md p-2.5 text-sm" /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div><label className="block text-sm font-medium mb-1.5">Stok Awal</label><input type="number" value={newItemForm.stock} onChange={e => setNewItemForm({ ...newItemForm, stock: parseInt(e.target.value) || 0 })} required min="0" className="w-full border border-gray-300 rounded-md p-2.5 text-sm" /></div>
+            <div><label className="block text-sm font-medium mb-1.5">Batas Restok</label><input type="number" value={newItemForm.min_stock} onChange={e => setNewItemForm({ ...newItemForm, min_stock: parseInt(e.target.value) || 0 })} required min="0" className="w-full border border-gray-300 rounded-md p-2.5 text-sm" /></div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">Kategori (Pilih / Tambah)</label>
+            <div className="flex gap-2 flex-wrap mb-3">
+              {PRESET_TAGS.map(t => (
+                <button type="button" key={t} onClick={() => toggleNewTag(t)} className={`px-3 py-1 text-xs rounded-sm border ${newItemForm.tags.includes(t) ? 'bg-black text-white border-black' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>{t}</button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCustomTag())} placeholder="Kategori baru..." className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm" />
+              <button type="button" onClick={addCustomTag} className="bg-gray-100 border border-gray-200 px-3 py-2 rounded-md text-sm hover:bg-gray-200">Tambah</button>
+            </div>
+          </div>
+          <button type="submit" className="w-full bg-black text-white font-medium py-3 rounded-md mt-4">Simpan Barang</button>
+        </form>
+      </Modal>
+
+      {/* Floating Window: Edit Barang */}
+      <Modal isOpen={dialogEdit} onClose={() => setDialogEdit(false)} title="Edit Barang">
+        {editForm && (
+          <div className="space-y-4">
+            <div><label className="block text-sm font-medium mb-1.5">Nama Barang</label><input type="text" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} className="w-full border border-gray-300 rounded-md p-2.5 text-sm" /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium mb-1.5">Koreksi Stok</label><input type="number" value={editForm.stock} onChange={e => setEditForm({ ...editForm, stock: parseInt(e.target.value) || 0 })} min="0" className="w-full border border-gray-300 rounded-md p-2.5 text-sm" /></div>
+              <div><label className="block text-sm font-medium mb-1.5">Batas Restok</label><input type="number" value={editForm.min_stock} onChange={e => setEditForm({ ...editForm, min_stock: parseInt(e.target.value) || 0 })} min="0" className="w-full border border-gray-300 rounded-md p-2.5 text-sm" /></div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Kategori</label>
+              <div className="flex gap-2 flex-wrap mb-3">
+                {PRESET_TAGS.map(t => (
+                  <button type="button" key={t} onClick={() => toggleEditTag(t)} className={`px-3 py-1 text-xs rounded-sm border ${editForm.tags?.includes(t) ? 'bg-black text-white border-black' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>{t}</button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input type="text" value={tagInput} onChange={e => setTagInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCustomEditTag())} placeholder="Kategori baru..." className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm" />
+                <button type="button" onClick={addCustomEditTag} className="bg-gray-100 border border-gray-200 px-3 py-2 rounded-md text-sm hover:bg-gray-200">Tambah</button>
+              </div>
+            </div>
+            <button onClick={saveEdit} className="w-full bg-black text-white font-medium py-3 rounded-md mt-4">Simpan Perubahan</button>
+          </div>
+        )}
+      </Modal>
+
+      {/* Floating Window: Restok */}
+      <Modal isOpen={dialogRestock.isOpen} onClose={() => setDialogRestock({ isOpen: false, item: null, qty: 1 })} title="Barang Masuk (Restok)">
+        {dialogRestock.item && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">Berapa banyak barang yang baru datang untuk <strong>{dialogRestock.item.name}</strong>?</p>
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Jumlah Tambahan</label>
+              <input type="number" value={dialogRestock.qty} onChange={e => setDialogRestock({ ...dialogRestock, qty: parseInt(e.target.value) || 1 })} min="1" className="w-full border border-gray-300 rounded-md p-2.5 text-sm text-center text-lg font-medium" />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setDialogRestock({ isOpen: false, item: null, qty: 1 })} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-md text-sm font-medium">Batal</button>
+              <button onClick={confirmRestock} className="flex-1 bg-black text-white py-3 rounded-md text-sm font-medium">Simpan Stok</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Floating Window: Confirm */}
+      <Modal isOpen={dialogConfirm.isOpen} onClose={() => setDialogConfirm({ isOpen: false, message: '', onConfirm: () => {} })} title="Konfirmasi">
+        <div className="space-y-6 text-center">
+          <p className="text-gray-700">{dialogConfirm.message}</p>
+          <div className="flex gap-3">
+            <button onClick={() => setDialogConfirm({ isOpen: false, message: '', onConfirm: () => {} })} className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-md text-sm font-medium">Batal</button>
+            <button onClick={dialogConfirm.onConfirm} className="flex-1 bg-red-600 text-white py-2.5 rounded-md text-sm font-medium">Ya, Hapus</button>
+          </div>
+        </div>
+      </Modal>
+
     </div>
   );
 }
