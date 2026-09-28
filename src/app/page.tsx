@@ -1,8 +1,8 @@
 'use client';
-import { useCallback, useMemo, useState } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStock } from '@/hooks/useStock';
 import { Modal, SyncBadge, TagBadge, Toast } from '@/components/ui';
+import { getDeviceId, isValidSyncCode, normalizeSyncCode, setDeviceId } from '@/lib/device';
 import { PRESET_TAGS, type HistoryLog, type StockItem } from '@/lib/types';
 import {
   applyRestock,
@@ -37,9 +37,14 @@ const TABS: { id: TabId; label: string }[] = [
 const INP = 'w-full border border-gray-300 rounded-md p-2.5 text-sm focus:border-black outline-none bg-white';
 
 export default function Home() {
-  const auth = useAuth();
-  const stock = useStock(auth.user);
+  const [deviceId, setDevice] = useState('');
+  const stock = useStock(deviceId);
   const { items, history, mounted, sync, persist, pushLocalToCloud, pullCloudToLocal } = stock;
+
+  // Baca device ID setelah mount (localStorage tidak tersedia di server)
+  useEffect(() => {
+    setDevice(getDeviceId());
+  }, []);
 
   const [tab, setTab] = useState<TabId>('dashboard');
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -63,13 +68,10 @@ export default function Home() {
   const [dlgAdd, setDlgAdd] = useState(false);
   const [dlgEdit, setDlgEdit] = useState(false);
   const [dlgSettings, setDlgSettings] = useState(false);
-  const [dlgAuth, setDlgAuth] = useState(false);
+  const [dlgSync, setDlgSync] = useState(false);
+  const [syncCodeInput, setSyncCodeInput] = useState('');
   const [dlgRestock, setDlgRestock] = useState<{ open: boolean; item: StockItem | null; qty: number }>({ open: false, item: null, qty: 1 });
   const [dlgConfirm, setDlgConfirm] = useState<{ open: boolean; message: string; onConfirm: () => void }>({ open: false, message: '', onConfirm: () => {} });
-
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPass, setAuthPass] = useState('');
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
 
   const today = todayISO();
   const show = useCallback((msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type }), []);
@@ -218,16 +220,33 @@ export default function Home() {
     show(ok ? 'Data cloud diambil' : 'Gagal ambil', ok ? 'success' : 'error');
   };
 
-  const doAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const ok = authMode === 'login'
-      ? await auth.loginEmail(authEmail, authPass)
-      : await auth.registerEmail(authEmail, authPass);
-    if (ok) {
-      setDlgAuth(false);
-      setAuthPass('');
-      show(authMode === 'login' ? 'Berhasil masuk' : 'Akun dibuat');
+  /** Salin kode sinkronisasi device ini ke clipboard. */
+  const onCopySyncCode = async () => {
+    try {
+      await navigator.clipboard.writeText(deviceId);
+      show('Kode sinkronisasi disalin');
+    } catch {
+      show('Gagal menyalin. Salin manual dari kotak di atas.', 'error');
     }
+  };
+
+  /** Sambungkan device ini ke kode sinkronisasi milik device lain. */
+  const onConnectSync = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isValidSyncCode(syncCodeInput)) {
+      return show('Kode sinkronisasi tidak valid (minimal 12 karakter).', 'error');
+    }
+    const code = normalizeSyncCode(syncCodeInput);
+    if (code === deviceId) {
+      return show('Itu kode device ini sendiri.', 'error');
+    }
+    if (!setDeviceId(code)) {
+      return show('Gagal menyimpan kode.', 'error');
+    }
+    setDlgSync(false);
+    setSyncCodeInput('');
+    // Muat ulang supaya data dari device tujuan diambil.
+    window.location.reload();
   };
 
   const resetHistFilter = () => {
@@ -273,15 +292,11 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-3">
           <div className="text-sm text-gray-500">{todayFormatted}</div>
-          {auth.enabled && (auth.user ? (
-            <button onClick={() => auth.logout()} title={auth.user.email ?? ''} className="text-xs text-gray-500 hover:text-black border border-gray-200 rounded-md px-2.5 py-1.5">
-              Keluar
+          {sync.online && (
+            <button onClick={() => setDlgSync(true)} className="text-xs text-gray-500 hover:text-black border border-gray-200 rounded-md px-2.5 py-1.5">
+              Sinkron
             </button>
-          ) : (
-            <button onClick={() => setDlgAuth(true)} className="text-xs bg-black text-white rounded-md px-3 py-1.5 hover:bg-gray-800">
-              Masuk
-            </button>
-          ))}
+          )}
           <button onClick={() => setDlgSettings(true)} aria-label="Pengaturan" className="text-gray-400 hover:text-black">⚙️</button>
         </div>
       </nav>
@@ -292,8 +307,8 @@ export default function Home() {
           <SyncBadge online={sync.online} syncing={sync.syncing} loading={sync.loading} />
         </div>
         <div className="flex items-center gap-3">
-          {auth.enabled && !auth.user && (
-            <button onClick={() => setDlgAuth(true)} className="text-[11px] bg-black text-white rounded px-2 py-1">Masuk</button>
+          {sync.online && (
+            <button onClick={() => setDlgSync(true)} className="text-[11px] text-gray-500 border border-gray-200 rounded px-2 py-1">Sinkron</button>
           )}
           <button onClick={() => setDlgSettings(true)} aria-label="Pengaturan" className="text-gray-500">⚙️</button>
         </div>
@@ -583,28 +598,24 @@ export default function Home() {
       {/* ------------------------------------------------------- modals */}
       <Modal isOpen={dlgSettings} onClose={() => setDlgSettings(false)} title="Pengaturan &amp; Backup">
         <div className="space-y-6">
-          {auth.enabled && (
+          {sync.online && (
             <div>
-              <h4 className="text-sm font-medium mb-2 text-gray-900">Akun &amp; Sinkronisasi</h4>
-              {auth.user ? (
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-500">
-                    Masuk sebagai <strong>{auth.user.email}</strong>. Data otomatis tersinkron ke cloud.
-                  </p>
-                  <div className="flex gap-2">
-                    <button onClick={onMigrate} disabled={sync.syncing} className="flex-1 bg-white border border-gray-300 py-2.5 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
-                      Upload Lokal → Cloud
-                    </button>
-                    <button onClick={onPull} disabled={sync.syncing} className="flex-1 bg-white border border-gray-300 py-2.5 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
-                      Ambil dari Cloud
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button onClick={() => { setDlgSettings(false); setDlgAuth(true); }} className="w-full bg-black text-white py-2.5 rounded-md text-sm font-medium">
-                  Masuk untuk sinkronisasi
+              <h4 className="text-sm font-medium mb-2 text-gray-900">Sinkronisasi Cloud</h4>
+              <p className="text-xs text-gray-500 mb-3">
+                Data otomatis tersinkron ke cloud. Untuk memakai data yang sama di device
+                lain, bagikan kode sinkronisasi lewat tombol di bawah.
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => { setDlgSettings(false); setDlgSync(true); }} className="flex-1 bg-black text-white py-2.5 rounded-md text-sm font-medium hover:bg-gray-800">
+                  Kode Sinkronisasi
                 </button>
-              )}
+                <button onClick={onPull} disabled={sync.syncing} className="flex-1 bg-white border border-gray-300 py-2.5 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
+                  Ambil dari Cloud
+                </button>
+              </div>
+              <button onClick={onMigrate} disabled={sync.syncing} className="w-full mt-2 bg-white border border-gray-300 py-2.5 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
+                Upload Semua Data Lokal ke Cloud
+              </button>
             </div>
           )}
           <div>
@@ -638,30 +649,46 @@ export default function Home() {
         </div>
       </Modal>
 
-      <Modal isOpen={dlgAuth} onClose={() => { setDlgAuth(false); auth.clearError(); }} title={authMode === 'login' ? 'Masuk' : 'Buat Akun'}>
-        <form onSubmit={doAuth} className="space-y-4">
-          {auth.error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-md">{auth.error}</div>
-          )}
+      <Modal isOpen={dlgSync} onClose={() => setDlgSync(false)} title="Sinkronisasi Antar Device">
+        <div className="space-y-5">
           <div>
-            <label className="block text-sm font-medium mb-1.5 text-gray-700">Email</label>
-            <input type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} required className={INP} placeholder="nama@email.com" />
+            <h4 className="text-sm font-medium mb-2 text-gray-900">Kode Device Ini</h4>
+            <p className="text-xs text-gray-500 mb-3">
+              Bagikan kode ini ke device lain supaya keduanya memakai data yang sama.
+              Masukkan kode ini di device kedua lewat menu di bawah.
+            </p>
+            <div className="flex gap-2">
+              <input readOnly value={deviceId} className={`${INP} font-mono text-xs`} onFocus={(e) => e.target.select()} />
+              <button type="button" onClick={onCopySyncCode} className="bg-gray-100 border border-gray-200 px-3 rounded-md text-sm font-medium hover:bg-gray-200 shrink-0">
+                Salin
+              </button>
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1.5 text-gray-700">Password</label>
-            <input type="password" value={authPass} onChange={(e) => setAuthPass(e.target.value)} required minLength={6} className={INP} placeholder="Minimal 6 karakter" />
+
+          <hr className="border-gray-100" />
+
+          <form onSubmit={onConnectSync} className="space-y-3">
+            <h4 className="text-sm font-medium text-gray-900">Sambungkan ke Device Lain</h4>
+            <p className="text-xs text-gray-500">
+              Masukkan kode dari device lain. Device ini akan memakai data device tersebut.
+            </p>
+            <input
+              type="text"
+              value={syncCodeInput}
+              onChange={(e) => setSyncCodeInput(e.target.value)}
+              placeholder="xxxx-xxxx-xxxx-xxxx-xxxx"
+              className={`${INP} font-mono text-xs`}
+            />
+            <button type="submit" className="w-full bg-black text-white font-medium py-2.5 rounded-md hover:bg-gray-800">
+              Sambungkan
+            </button>
+          </form>
+
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs p-3 rounded-md leading-relaxed">
+            <strong>Catatan:</strong> kode ini bersifat rahasia. Siapa pun yang tahu kodenya
+            bisa melihat dan mengubah data stok. Jangan dibagikan ke orang lain.
           </div>
-          <button type="submit" disabled={auth.busy} className="w-full bg-black text-white font-medium py-3 rounded-md shadow-sm hover:bg-gray-800 disabled:opacity-50">
-            {auth.busy ? 'Memproses…' : authMode === 'login' ? 'Masuk' : 'Daftar'}
-          </button>
-          <button
-            type="button"
-            onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); auth.clearError(); }}
-            className="w-full text-xs text-gray-500 hover:text-black"
-          >
-            {authMode === 'login' ? 'Belum punya akun? Daftar' : 'Sudah punya akun? Masuk'}
-          </button>
-        </form>
+        </div>
       </Modal>
 
       <Modal isOpen={dlgAdd} onClose={() => setDlgAdd(false)} title="Tambah Barang Gudang">

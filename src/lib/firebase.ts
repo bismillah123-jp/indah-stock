@@ -15,7 +15,6 @@
  */
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getFirestore, type Firestore } from 'firebase/firestore';
-import { getAuth, type Auth } from 'firebase/auth';
 
 const cfg = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -31,7 +30,6 @@ export const firebaseEnabled = Boolean(cfg.apiKey && cfg.projectId && cfg.appId)
 
 let app: FirebaseApp | null = null;
 let dbInstance: Firestore | null = null;
-let authInstance: Auth | null = null;
 
 export function getFirebaseApp(): FirebaseApp | null {
   if (!firebaseEnabled) return null;
@@ -59,30 +57,16 @@ export function getDb(): Firestore | null {
   }
 }
 
-export function getFirebaseAuth(): Auth | null {
-  if (!firebaseEnabled) return null;
-  if (authInstance) return authInstance;
-  const a = getFirebaseApp();
-  if (!a) return null;
-  try {
-    authInstance = getAuth(a);
-    return authInstance;
-  } catch (e) {
-    console.error('[firebase] gagal ambil auth:', e);
-    return null;
-  }
-}
-
 /**
- * Koleksi Firestore yang dipakai. Data disimpan per-user supaya satu
- * project bisa dipakai beberapa konter tanpa saling lihat.
+ * Path data. Data dipisah per "store" (bukan per-user) supaya satu project
+ * Firebase bisa dipakai beberapa konter tanpa saling lihat.
  *
- *   users/{uid}/items/{itemId}
- *   users/{uid}/history/{logId}
+ *   stores/{storeId}/items/{itemId}
+ *   stores/{storeId}/history/{logId}
  */
-export function userPaths(uid: string) {
+export function storePaths(storeId: string) {
   return {
-    items: `users/${uid}/items`,
-    history: `users/${uid}/history`,
+    items: `stores/${storeId}/items`,
+    history: `stores/${storeId}/history`,
   };
 }
