@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useStock } from '@/hooks/useStock';
 import { Modal, SyncBadge, TagBadge, Toast } from '@/components/ui';
 import { getDeviceId, isValidSyncCode, normalizeSyncCode, setDeviceId } from '@/lib/device';
@@ -37,14 +37,11 @@ const TABS: { id: TabId; label: string }[] = [
 const INP = 'w-full border border-gray-300 rounded-md p-2.5 text-sm focus:border-black outline-none bg-white';
 
 export default function Home() {
-  const [deviceId, setDevice] = useState('');
+  // Device ID dibaca sekali lewat initializer (bukan di useEffect) supaya
+  // tidak memicu lint react-hooks/set-state-in-effect.
+  const [deviceId] = useState(() => getDeviceId());
   const stock = useStock(deviceId);
   const { items, history, mounted, sync, persist, pushLocalToCloud, pullCloudToLocal } = stock;
-
-  // Baca device ID setelah mount (localStorage tidak tersedia di server)
-  useEffect(() => {
-    setDevice(getDeviceId());
-  }, []);
 
   const [tab, setTab] = useState<TabId>('dashboard');
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
